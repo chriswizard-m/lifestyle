@@ -10,7 +10,8 @@ from flask import Flask, request, jsonify
 import torch
 from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
 import kagglehub
-import requests # We will use this to download the dataset programmatically
+import requests
+import gunicorn
 
 # --- 1. Load your models and data once when the app starts ---
 app = Flask(__name__)
@@ -49,14 +50,19 @@ base_model.trainable = False
 feature_extractor = tf.keras.Sequential([base_model, GlobalMaxPooling2D()])
 print("Feature extraction model loaded successfully.")
 
-# Load the local LLM
-model_id = "meta-llama/Meta-Llama-3-8B-Instruct" 
+# --- CHANGE: Load a smaller LLM that fits within the memory limit ---
+model_id = "google/gemma-2b-it"
 tokenizer = AutoTokenizer.from_pretrained(model_id)
-llm_model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto", torch_dtype=torch.float16)
+llm_model = AutoModelForCausalLM.from_pretrained(
+    model_id, 
+    device_map="auto", 
+    torch_dtype=torch.float16,
+    low_cpu_mem_usage=True # Add this for better memory management
+)
 llm_pipe = pipeline("text-generation", model=llm_model, tokenizer=tokenizer)
-print("LLM loaded successfully.")
+print(f"LLM {model_id} loaded successfully.")
 
-# --- Helper functions (same as before) ---
+# --- Helper functions ---
 def get_image_embedding(image, model):
     img = image.resize((224, 224))
     img_array = np.expand_dims(tf.keras.utils.img_to_array(img), axis=0)
@@ -99,13 +105,11 @@ def recommend():
     try:
         image = Image.open(file.stream)
         target_embedding = get_image_embedding(image, feature_extractor)
-
         similar_items = find_similar_items(target_embedding, embeddings_array, product_ids_array, df_full)
         
         if similar_items.empty:
             return jsonify({"error": "Could not find any similar items."}), 404
         
-        # We'll use the first similar item found as our target for the LLM prompt
         target_item_metadata = similar_items.iloc[0].to_dict()
 
         llm_prompt = generate_gpt_prompt(target_item_metadata, similar_items)
@@ -120,6 +124,4 @@ def recommend():
         return jsonify({"error": f"An internal server error occurred: {e}"}), 500
 
 if __name__ == '__main__':
-    # Use Gunicorn for production, not Flask's dev server
-    # The start command in Render will handle this.
     app.run(host='0.0.0.0', port=os.environ.get('PORT', 5000))

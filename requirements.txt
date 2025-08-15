@@ -1,0 +1,14 @@
+Flask
+numpy
+pandas
+scikit-learn
+tensorflow
+keras
+Pillow
+torch
+transformers
+accelerate
+bitsandbytes
+requests
+kagglehub
+gunicorn
